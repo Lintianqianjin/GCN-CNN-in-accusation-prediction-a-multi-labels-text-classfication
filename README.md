@@ -1,2 +1,2 @@
-# GCN-CNN-in-accusation-predict
-## -a-multi-labels-text-classfication
+# GCN CNN in accusationpredict
+## a multi-labels text classfication
