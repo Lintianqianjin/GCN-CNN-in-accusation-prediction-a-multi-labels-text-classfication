@@ -1,2 +1,2 @@
-# GCN CNN in accusationpredict
+# GCN CNN in accusation predict
 ## a multi-labels text classfication
