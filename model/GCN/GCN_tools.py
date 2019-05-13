@@ -3,13 +3,19 @@ from scipy import sparse
 import pandas as pd
 import numpy as np
 from tqdm import tqdm
+import os
+import regex as re
 
 import json
 
 class tools():
 
-    def __init__(self):
-        pass
+    def __init__(self,BaseDir = None):
+
+        self.BaseDir = BaseDir
+
+        if not os.path.exists(self.BaseDir):
+            os.makedirs(self.BaseDir)
 
     def getTimeStamp(self):
         import time
@@ -19,7 +25,7 @@ class tools():
 
     def constructLabels(self):
         accusation = {0: 0, 2: 1, 3: 2, 12: 3, 16: 4}
-        dataSet = open(r'D:\College Courses 2019.3-2019.6\信息管理课设\code\data\GCN\smallerTest\GCN_dataset_smaller.json','r',encoding='utf-8')
+        dataSet = open(os.path.join(self.BaseDir,f'GCN_dataset.json'),'r',encoding='utf-8')
         labels = []
         for line in tqdm(dataSet):
             data = json.loads(line.strip())
@@ -29,46 +35,72 @@ class tools():
                 label[accusation[_]] = 1
             labels.append(label)
 
-        for blank_lable in range(8182):
-            labels.append(np.zeros(shape=(5),dtype=int))
+        # for blank_lable in range(8182):
+        #     labels.append(np.zeros(shape=(5),dtype=int))
 
-        np.save(r'D:\College Courses 2019.3-2019.6\信息管理课设\code\data\GCN\smallerTest\labels.npy',arr=labels)
+        np.save(os.path.join(self.BaseDir,'labels.npy'),arr=labels)
 
     def constructOnehotFeatures(self):
-        row = range(8681)
-        col = range(8681)
-        data = np.ones(shape=(1,8681),dtype=float).flatten()
-        sparse_matrix = sparse.coo_matrix((data, (row, col)), shape=(8681, 8681))
-        sparse.save_npz(r'D:\College Courses 2019.3-2019.6\信息管理课设\code\data\GCN\smallerTest\onehotFeatures.npz',
+        filenames = os.listdir(self.BaseDir)
+        for filename in filenames:
+            if filename.startswith('GCN_pointsIdx_'):
+                num_Nodes = int(re.search('Idx_(?P<num_Nodes>\d*)\.',filename).group('num_Nodes'))
+                break
+        else:
+            print('please run generatePointsIndex() first')
+            return None
+        row = range(num_Nodes)
+        col = range(num_Nodes)
+        data = np.ones(shape=(1,num_Nodes),dtype=float).flatten()
+        sparse_matrix = sparse.coo_matrix((data, (row, col)), shape=(num_Nodes, num_Nodes))
+        sparse.save_npz(os.path.join(self.BaseDir,f'onehotFeatures.npz'),
                         sparse_matrix)
 
     def constructMap(self):
         # 加载词间边文件
-        pmi_edge = np.loadtxt(r'D:\College Courses 2019.3-2019.6\信息管理课设\code\data\GCN\smallerTest\GCN_wordsPmiEdge.txt',
+        pmi_edge = np.loadtxt(os.path.join(self.BaseDir,f'GCN_wordsPmiEdge.txt'),
                                 encoding='utf-8',delimiter=',')
         # 加载文档与词间边文件
-        tfidf_edge = np.loadtxt(r'D:\College Courses 2019.3-2019.6\信息管理课设\code\data\GCN\smallerTest\GCN_docWordEdge.txt',
+        tfidf_edge = np.loadtxt(os.path.join(self.BaseDir,f'GCN_docWordEdge.txt'),
                                 encoding='utf-8',delimiter=',')
         all_edge = np.vstack((pmi_edge,tfidf_edge))
 
         row = np.array(all_edge[:,0:1],dtype=int).flatten()
         col = np.array(all_edge[:,1:2],dtype=int).flatten()
         data = np.array(all_edge[:,2:],dtype=float).flatten()
-        sparse_matrix = sparse.coo_matrix((data, (row, col)), shape=(8681, 8681))
+        sparse_matrix = sparse.coo_matrix((data, (row, col)))
         # 保存为本地的稀疏矩阵形式 .npz
-        sparse.save_npz(r'D:\College Courses 2019.3-2019.6\信息管理课设\code\data\GCN\smallerTest\mapStructure.npz',sparse_matrix)
+        sparse.save_npz(os.path.join(self.BaseDir,'mapStructure.npz'),sparse_matrix)
 
-    def generateEdgesBetweenWords(self,windows_counts = 50608):
+    def generateEdgesBetweenWords(self):
         # 本方法读取词语的PMI的窗口信息，生成词语之间的稀疏矩阵
-
+        # PMI windows文件
+        filenames = os.listdir(self.BaseDir)
         # 加载节点与索引对照
         # 用于存储边的时候得到坐标
-        points_idx_dict = json.load(open(r'D:\College Courses 2019.3-2019.6\信息管理课设\code\data\GCN\smallerTest\GCN_getPointIndex.json','r',encoding='utf-8'))
-        # PMI windows文件
-        PMIwindows = json.load(open(r'D:\College Courses 2019.3-2019.6\信息管理课设\code\data\GCN\smallerTest\GCN_PMIWindow_smaller_50608.json','r',encoding='utf-8'))
+        for filename in filenames:
+            if filename.startswith('GCN_getPointIndex'):
+                points_idx_dict = json.load(
+                    open(os.path.join(self.BaseDir, filename), 'r', encoding='utf-8'))
+                break
+        else:
+            print('please run generatePointsIndex() first')
+            return None
+
+        for filename in filenames:
+            if filename.startswith('GCN_PMIWindows_'):
+                PMIwindows = json.load(
+                    open(os.path.join(self.BaseDir, filename), 'r', encoding='utf-8'))
+                windows_counts = int(re.search('PMIWindows_(?P<num_windows>\d*)\.',filename).group('num_windows'))
+                print(f"windows_counts {windows_counts}")
+                break
+        else:
+            print('please run countPMIWindows() first')
+            return None
+
         # 边的文件，行，列，值
         # 循环计算两单词的PMI
-        pmi_edges = open(r'D:\College Courses 2019.3-2019.6\信息管理课设\code\data\GCN\smallerTest\GCN_wordsPmiEdge.txt','w',encoding='utf-8')
+        pmi_edges = open(os.path.join(self.BaseDir,f'GCN_wordsPmiEdge.txt'),'w',encoding='utf-8')
         with pmi_edges as f:
             for word in tqdm(PMIwindows):
                 # 该词与其他词的共现窗口情况
@@ -93,24 +125,46 @@ class tools():
 
     def generateEdgesBetweenDocsWords(self):
         # 本方法读取TF和IDF文件，生成词语和文本之间的稀疏矩阵
+        filenames = os.listdir(self.BaseDir)
 
         # 加载节点与索引对照
         # 用于存储边的时候得到坐标
-        points_idx_dict = json.load(
-            open(r'D:\College Courses 2019.3-2019.6\信息管理课设\code\data\GCN\smallerTest\GCN_getPointIndex.json', 'r',
-                 encoding='utf-8'))
+        for filename in filenames:
+            if filename.startswith('GCN_getPointIndex'):
+                points_idx_dict = json.load(
+                    open(os.path.join(self.BaseDir,filename),'r',encoding='utf-8'))
+                break
+        else:
+            print('please run generatePointsIndex() first')
+            return None
+
         # 加载IDF文件
-        word_IDF = json.load(
-            open(r'D:\College Courses 2019.3-2019.6\信息管理课设\code\data\GCN\smallerTest\GCN_IDF_smaller_8182.json', 'r',
-                 encoding='utf-8'))
+        for filename in filenames:
+            if filename.startswith('GCN_IDF'):
+                word_IDF = json.load(
+                    open(os.path.join(self.BaseDir, filename),
+                         'r',
+                         encoding='utf-8'))
+                break
+        else:
+            print('please run countIDF() first')
+            return None
+
         # 加载TF文件
-        doc_TF = json.load(
-            open(r'D:\College Courses 2019.3-2019.6\信息管理课设\code\data\GCN\smallerTest\GCN_TF_smaller.json', 'r',
-                 encoding='utf-8'))
+        for filename in filenames:
+            if filename.startswith('GCN_TF'):
+                doc_TF = json.load(
+                    open(os.path.join(self.BaseDir, filename),
+                         'r',
+                         encoding='utf-8'))
+                break
+        else:
+            print('please run countTF() first')
+            return None
         # 建立稀疏记录的dataframe
-        tfidf_edges = pd.DataFrame(columns=('行', '列', '值'))
+        # tfidf_edges = pd.DataFrame(columns=('行', '列', '值'))
         # 循环计算TF文档中每个单词的TF-IDF值
-        with open(r'D:\College Courses 2019.3-2019.6\信息管理课设\code\data\GCN\smallerTest\GCN_docWordEdge.txt','w',encoding='utf-8') as f:
+        with open(os.path.join(self.BaseDir,f'GCN_docWordEdge.txt'),'w',encoding='utf-8') as f:
             for doc in tqdm(doc_TF):
                 for word in doc_TF[doc]:
                     # 根据节点索引生成边，写入文档与词之间边的文件
@@ -129,53 +183,65 @@ class tools():
         # 先从 tf 文件里加入doc索引
         # 即前面的节点是文档
         # 后面的节点是词语
-        docs = json.load(open(r'D:\College Courses 2019.3-2019.6\信息管理课设\code\data\GCN\smallerTest\GCN_TF_smaller.json','r',encoding='utf-8'))
+        filenames = os.listdir(self.BaseDir)
+        for filename in filenames:
+            if filename.startswith('GCN_TF_'):
+                docs = json.load(open(os.path.join(self.BaseDir,filename),'r',encoding='utf-8'))
+                break
+        else:
+            print('please run countTF() first')
+            return None
         # TF 文件里的key就是文档样本的索引序号
         for key in docs:
             points_idx[p_idx] = f'doc{key}'
             print(points_idx[p_idx])
             p_idx += 1
 
-        # 从idf文件里 读单词ID并加入点的索引
-        words = json.load(open(r'D:\College Courses 2019.3-2019.6\信息管理课设\code\data\GCN\smallerTest\GCN_IDF_smaller_8182.json','r',encoding='utf-8'))
+        for filename in filenames:
+            if filename.startswith('GCN_IDF_'):
+                # 从idf文件里 读单词ID并加入点的索引
+                words = json.load(open(os.path.join(self.BaseDir,filename),'r',encoding='utf-8'))
+                break
+        else:
+            print('please run countIDF() first')
+            return None
         # words里的key就是word的序号
         for key in words:
             points_idx[p_idx] = f'word{key}'
             print(points_idx[p_idx])
             p_idx+=1
 
-        with open(f'D:\College Courses 2019.3-2019.6\信息管理课设\code\data\GCN\smallerTest\GCN_pointsIdx_smaller_8681.json','w',encoding='utf-8') as f:
+        with open(os.path.join(self.BaseDir,f'GCN_pointsIdx_{p_idx}.json'),'w',encoding='utf-8') as f:
             f.write(json.dumps(points_idx,ensure_ascii=False,indent=1))
-        with open(f'D:\College Courses 2019.3-2019.6\信息管理课设\code\data\GCN\smallerTest\GCN_getPointIndex.json', 'w',
+        with open(os.path.join(self.BaseDir,f'GCN_getPointIndex.json'), 'w',
                   encoding='utf-8') as f:
             dict_ = {v: k for k, v in points_idx.items()}
             f.write(json.dumps(dict_, ensure_ascii=False, indent=1))
 
     def countTF(self):
-        dataset = open(r'D:\College Courses 2019.3-2019.6\信息管理课设\code\data\GCN_dataset_smaller.json','r',encoding='utf-8')
-        tffile = open(r'D:\College Courses 2019.3-2019.6\信息管理课设\code\data\GCN_TF_smaller.json','w',encoding='utf-8')
-        with tffile:
-            tfdict = dict()
-            for index,sample in enumerate(dataset):
-                # 建立字典记录当前样本的各词词频
-                # 需要和数据集里的样本顺序保持一致
-                tfdict[index] = dict()
-                words = json.loads(sample.strip())['fact']
-                for word in words:
-                    # 0就开始填充了
-                    if word == 0:
-                        break
-                    if word in tfdict[index]:
-                        tfdict[index][word] += 1
-                    else:
-                        tfdict[index][word] = 1
+        dataset = open(os.path.join(self.BaseDir,f'GCN_dataset.json'),'r',encoding='utf-8')
+        tfdict = dict()
+        for index,sample in enumerate(dataset):
+            # 建立字典记录当前样本的各词词频
+            # 需要和数据集里的样本顺序保持一致
+            tfdict[index] = dict()
+            words = json.loads(sample.strip())['fact']
+            for word in words:
+                # 0就开始填充了
+                if word == 0:
+                    break
+                if word in tfdict[index]:
+                    tfdict[index][word] += 1
+                else:
+                    tfdict[index][word] = 1
+        with open(os.path.join(self.BaseDir, f'GCN_TF_{index+1}.json'), 'w', encoding='utf-8') as tffile:
             tffile.write(json.dumps(tfdict,ensure_ascii=False,indent=1))
 
     def countIDF(self):
         # 用于计算当前数据集中所有单词的IDF值
         # 数据格式为{'word':IDF}
 
-        dataset = open(r'D:\College Courses 2019.3-2019.6\信息管理课设\code\data\GCN_dataset_smaller.json', 'r', encoding='utf-8')
+        dataset = open(os.path.join(self.BaseDir,f'GCN_dataset.json'), 'r', encoding='utf-8')
 
         # 先计算所有的单词的出现的文档次数
         dfdict = dict()
@@ -199,19 +265,19 @@ class tools():
 
         sorted_dfdict = dict(sorted(dfdict.items(),key=lambda item:item[1]))
 
-        with open(f'D:\College Courses 2019.3-2019.6\信息管理课设\code\data\GCN_IDF_smaller_{d_}.json',
+        with open(os.path.join(self.BaseDir,f'GCN_IDF_{d_}.json'),
                   'w', encoding='utf-8') as f:
             f.write(json.dumps(sorted_dfdict,ensure_ascii=False,indent=1))
 
     def countPMIWindows(self, window_size=15, slide_length=1, padding=0,sample_size = 400):
         # 该方法计算的是单词之间的窗口共现情况
         # 记录格式为{'word': {'self': XXX(num) ,'cooccurence':{xxx:0,xxx:15,xxx:16....}}...}
-        dataset = open(r'D:\College Courses 2019.3-2019.6\信息管理课设\code\data\GCN_dataset_smaller.json', 'r', encoding='utf-8')
+        dataset = open(os.path.join(self.BaseDir,'GCN_dataset.json'), 'r', encoding='utf-8')
         # 建立字典记录各词所在窗口数 以及 该词与其他词共现窗口数
         cooccurence = dict()
         # 用于记录整个数据集的窗口总数
         windows_counts = 0
-        for index, sample in enumerate(dataset):
+        for index, sample in tqdm(enumerate(dataset)):
             # 加载当前犯罪事实描述
             words = json.loads(sample.strip())['fact']
             # 开始记录自己出现的次数和共现次数
@@ -267,7 +333,7 @@ class tools():
                     break
 
 
-        with open(f'D:\College Courses 2019.3-2019.6\信息管理课设\code\data\GCN_PMIWindows_smaller_{windows_counts}.json',
+        with open(os.path.join(self.BaseDir,f'GCN_PMIWindows_{windows_counts}.json'),
                   'w', encoding='utf-8') as f:
             f.write(json.dumps(cooccurence,ensure_ascii=False,indent=1))
 
@@ -276,7 +342,10 @@ class tools():
         return windows_counts
 
 if __name__ == '__main__':
-    # tool = tools()
+    tool = tools(BaseDir=f'D:\College Courses 2019.3-2019.6\信息管理课设\code\data\GCN\middleTest')
+    # tool.constructOnehotFeatures()
+    tool.constructLabels()
+
     # t = tool.constructLabels()
 #     # coo = sparse.csc_matrix(sparse.load_npz(r'D:\College Courses 2019.3-2019.6\信息管理课设\code\data\GCN\smallerTest\onehotFeatures.npz'),shape=(8681,8681))
 #     # print(coo)
