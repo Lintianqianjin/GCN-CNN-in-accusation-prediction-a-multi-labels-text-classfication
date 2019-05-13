@@ -2,11 +2,21 @@ import tensorflow as tf
 import scipy.sparse as sp
 import numpy as np
 import tensorboard
+import os
+import regex as re
 
-def load_data_npz(n_samples = 499):
-    adj = sp.csc_matrix(sp.load_npz(r'D:\College Courses 2019.3-2019.6\信息管理课设\code\data\GCN\smallerTest\mapStructure.npz'),shape=(8681,8681))
-    features = sp.csc_matrix(sp.load_npz(r'D:\College Courses 2019.3-2019.6\信息管理课设\code\data\GCN\smallerTest\onehotFeatures.npz'),shape=(8681,8681))
-    labels = np.load(r'D:\College Courses 2019.3-2019.6\信息管理课设\code\data\GCN\smallerTest\labels.npy')
+def load_data_npz(BaseDir):
+    filenames = os.listdir(BaseDir)
+    for filename in filenames:
+        if filename.startswith('GCN_pointsIdx_'):
+            num_Nodes = int(re.search('Idx_(?P<num_Nodes>\d*)\.', filename).group('num_Nodes'))
+            break
+    else:
+        print('please run generatePointsIndex() first')
+        return None
+    adj = sp.csc_matrix(sp.load_npz(os.path.join(BaseDir,f'mapStructure.npz')),shape=(num_Nodes,num_Nodes))
+    features = sp.csc_matrix(sp.load_npz(os.path.join(BaseDir,f'onehotFeatures.npz')),shape=(num_Nodes,num_Nodes))
+    labels = np.load(os.path.join(BaseDir,f'labels.npy'))
 
     # idx_train = list(range(127))+list(range(177,256))+list(range(306,499))
     # idx_val = range(256,306)
@@ -45,7 +55,7 @@ def normalize_adj(adj):
 
 
 ###初始化数据 开始###
-adj, features,true_labels = load_data_npz()
+adj, features,true_labels = load_data_npz(BaseDir = f'D:\College Courses 2019.3-2019.6\信息管理课设\code\data\GCN\middleTest')
 # print(true_labels.shape)
 # exit()
 features = features.tocoo()
@@ -61,12 +71,14 @@ adj_data = np.array([data for data in features.data],dtype=np.float32)
 # print(support)
 
 ### 定义超参数 开始###
-mapLength = 8681
-gcnLayer_1_outputSize = 128
-gcnLayer_2_outputSize = 16
+mapLength = 13489
+num_docs = 998
+gcnLayer_1_outputSize = 256
+gcnLayer_2_outputSize = 64
+gcnLayer_3_outputSize = 16
 num_class = 5
 dropout = 0.3
-learning_rate = 0.01
+learning_rate = 0.005
 x1_adj_input_shape = np.array([mapLength, mapLength],dtype=np.int64)
 x2_features_input_shape = np.array([mapLength, mapLength],dtype=np.int64) # 一开始是onehot所以shape与邻接矩阵相同
 # ### 定义超参数 结束 ###
@@ -106,8 +118,8 @@ def add_gcnLayer(adj,features,in_size,out_size,activation_function=None,adj_spar
         print('features sparse')
         features_ordered = tf.sparse_reorder(features)
         features = tf.sparse.to_dense(features_ordered)
-    # print(adj)
-    # print(features)
+    print(adj)
+    print(features)
 
     with tf.name_scope('GraphConvLayer'):
         with tf.name_scope('GraphConvLayer_W'):
@@ -174,15 +186,16 @@ with tf.name_scope('Inputs'):
     x2_features_input = tf.sparse.placeholder(tf.float32,name='nodesFeaturesMatrixInput')
 
 with tf.name_scope('trueLabels'):
-    labels = tf.placeholder(tf.float32,shape=(8681,5),name='allNodesLabels')
+    labels = tf.placeholder(tf.float32,shape=(num_docs,5),name='allNodesLabels')
 
-gcn_layer_1 = add_gcnLayer(x1_adj_input,x2_features_input,in_size=mapLength,out_size=gcnLayer_1_outputSize,activation_function=tf.nn.relu,features_sparse=True)
-gcn_layer_2 = add_gcnLayer(x1_adj_input,gcn_layer_1,in_size=gcnLayer_1_outputSize,out_size=gcnLayer_2_outputSize,activation_function=tf.nn.relu)
-denseLayer = add_denseLayer(gcn_layer_2,in_size=gcnLayer_2_outputSize,out_size=num_class,activation_function=tf.nn.relu)
+gcn_layer_1 = add_gcnLayer(x1_adj_input,x2_features_input,in_size=mapLength,out_size=gcnLayer_1_outputSize,activation_function=tf.nn.tanh,features_sparse=True)
+gcn_layer_2 = add_gcnLayer(x1_adj_input,gcn_layer_1,in_size=gcnLayer_1_outputSize,out_size=gcnLayer_2_outputSize,activation_function=tf.nn.tanh)
+gcn_layer_3 = add_gcnLayer(x1_adj_input,gcn_layer_2,in_size=gcnLayer_2_outputSize,out_size=gcnLayer_3_outputSize,activation_function=tf.nn.tanh)
+denseLayer = add_denseLayer(gcn_layer_3,in_size=gcnLayer_3_outputSize,out_size=num_class,activation_function=tf.nn.relu)
 
 with tf.name_scope('loss'):
-    loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.strided_slice(labels,[0,0],[499,5],[1,1]),
-                                            logits=tf.strided_slice(denseLayer,[0,0],[499,5],[1,1])))
+    loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.strided_slice(labels,[0,0],[num_docs,num_class],[1,1]),
+                                            logits=tf.strided_slice(denseLayer,[0,0],[num_docs,num_class],[1,1])))
 with tf.name_scope('train'):
     train_step = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(loss)
 
@@ -190,7 +203,7 @@ sess = tf.Session()
 # writer = tf.summary.FileWriter('D:/College Courses 2019.3-2019.6/信息管理课设/code/data/GCN/logs/',sess.graph)
 sess.run(tf.global_variables_initializer())
 
-for i in range(200):
+for i in range(512):
     print(i)
     sess.run(train_step,feed_dict={x1_adj_input:(adj_indices, adj_data,x1_adj_input_shape),
                                    x2_features_input:(features_indices, features_data,x2_features_input_shape),
