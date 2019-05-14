@@ -1,4 +1,4 @@
-# GCN CNN in accusation predict
+# GCN CNN in accusation prediction
 ## a multi-labels text classfication
 
 #### 2019/5/13
